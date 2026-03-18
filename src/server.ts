@@ -1,9 +1,10 @@
+import "dotenv/config";
 import Hapi, { type ServerRoute } from '@hapi/hapi'
 import { config } from './config/config.ts'
 import { routes } from './routes/routes.ts'
 import swaggerPlugin from './plugins/swaggerPlugin.ts'
 import jwtPlugin from './plugins/jwtPlugin.ts'
-import prismaPlugin from './plugins/prismaPlugin.ts'
+import dynamoDbPlugin from './plugins/dynamoDbPlugin.ts'
 import authRoutes from './modules/auth/auth.routes.ts'
 import productRoutes from './modules/products/product.routes.ts'
 import cartRoutes from './modules/cart/cart.routes.ts'
@@ -16,7 +17,7 @@ async function start() {
     })
 
     await server.register([
-        prismaPlugin,
+        dynamoDbPlugin,
         swaggerPlugin,
         jwtPlugin,
     ])

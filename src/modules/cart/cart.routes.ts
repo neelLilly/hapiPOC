@@ -1,5 +1,5 @@
 import type { ServerRoute } from "@hapi/hapi";
-import type { PrismaClient } from "@prisma/client";
+import type { DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb";
 import { addCartItemSchema, updateCartItemSchema } from "./cart.schema.ts";
 import { getOrCreateCart, addItemToCart, updateCartItemQuantity, removeCartItem, clearCart } from "./cart.service.ts";
 
@@ -18,9 +18,9 @@ const cartRoutes: ServerRoute[] = [
             }
         },
         handler: async (request, h) => {
-            const prisma = request.server.app.prisma as PrismaClient;
+            const dynamodb = request.server.app.dynamodb as DynamoDBDocumentClient;
             const { userId } = request.auth.credentials as { userId: string };
-            const cart = await getOrCreateCart(prisma, userId);
+            const cart = await getOrCreateCart(dynamodb, userId);
             return h.response(cart).code(200);
         }
     },
@@ -41,11 +41,11 @@ const cartRoutes: ServerRoute[] = [
             }
         },
         handler: async (request, h) => {
-            const prisma = request.server.app.prisma as PrismaClient;
+            const dynamodb = request.server.app.dynamodb as DynamoDBDocumentClient;
             const { userId } = request.auth.credentials as { userId: string };
             const { productId, quantity } = request.payload as { productId: string; quantity: number };
 
-            const item = await addItemToCart(prisma, userId, productId, quantity);
+            const item = await addItemToCart(dynamodb, userId, productId, quantity);
             return h.response(item).code(201);
         }
     },
@@ -66,11 +66,11 @@ const cartRoutes: ServerRoute[] = [
             }
         },
         handler: async (request, h) => {
-            const prisma = request.server.app.prisma as PrismaClient;
+            const dynamodb = request.server.app.dynamodb as DynamoDBDocumentClient;
             const { itemId } = request.params as { itemId: string };
             const { quantity } = request.payload as { quantity: number };
 
-            const item = await updateCartItemQuantity(prisma, itemId, quantity);
+            const item = await updateCartItemQuantity(dynamodb, itemId, quantity);
             return h.response(item).code(200);
         }
     },
@@ -88,10 +88,10 @@ const cartRoutes: ServerRoute[] = [
             }
         },
         handler: async (request, h) => {
-            const prisma = request.server.app.prisma as PrismaClient;
+            const dynamodb = request.server.app.dynamodb as DynamoDBDocumentClient;
             const { itemId } = request.params as { itemId: string };
 
-            await removeCartItem(prisma, itemId);
+            await removeCartItem(dynamodb, itemId);
             return h.response().code(204);
         }
     },
@@ -109,10 +109,10 @@ const cartRoutes: ServerRoute[] = [
             }
         },
         handler: async (request, h) => {
-            const prisma = request.server.app.prisma as PrismaClient;
+            const dynamodb = request.server.app.dynamodb as DynamoDBDocumentClient;
             const { userId } = request.auth.credentials as { userId: string };
 
-            await clearCart(prisma, userId);
+            await clearCart(dynamodb, userId);
             return h.response().code(204);
         }
     }

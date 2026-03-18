@@ -1,5 +1,5 @@
 import type { ServerRoute } from "@hapi/hapi";
-import type { PrismaClient } from "@prisma/client";
+import type { DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb";
 import { addFavoriteSchema } from "./favorites.schema.ts";
 import { listFavorites, addFavorite, removeFavorite } from "./favorites.service.ts";
 
@@ -18,10 +18,10 @@ const favoritesRoutes: ServerRoute[] = [
             }
         },
         handler: async (request, h) => {
-            const prisma = request.server.app.prisma as PrismaClient;
+            const dynamodb = request.server.app.dynamodb as DynamoDBDocumentClient;
             const { userId } = request.auth.credentials as { userId: string };
 
-            const favorites = await listFavorites(prisma, userId);
+            const favorites = await listFavorites(dynamodb, userId);
             return h.response(favorites).code(200);
         }
     },
@@ -42,12 +42,16 @@ const favoritesRoutes: ServerRoute[] = [
             }
         },
         handler: async (request, h) => {
-            const prisma = request.server.app.prisma as PrismaClient;
+            const dynamodb = request.server.app.dynamodb as DynamoDBDocumentClient;
             const { userId } = request.auth.credentials as { userId: string };
             const { productId } = request.payload as { productId: string };
 
-            const favorite = await addFavorite(prisma, userId, productId);
-            return h.response(favorite).code(201);
+            try {
+                const favorite = await addFavorite(dynamodb, userId, productId);
+                return h.response(favorite).code(201);
+            } catch (err: any) {
+                return h.response({ message: err.message }).code(400);
+            }
         }
     },
     {
@@ -64,12 +68,16 @@ const favoritesRoutes: ServerRoute[] = [
             }
         },
         handler: async (request, h) => {
-            const prisma = request.server.app.prisma as PrismaClient;
+            const dynamodb = request.server.app.dynamodb as DynamoDBDocumentClient;
             const { userId } = request.auth.credentials as { userId: string };
             const { productId } = request.params as { productId: string };
 
-            await removeFavorite(prisma, userId, productId);
-            return h.response().code(204);
+            try {
+                await removeFavorite(dynamodb, userId, productId);
+                return h.response().code(204);
+            } catch (err: any) {
+                return h.response({ message: err.message }).code(404);
+            }
         }
     }
 ];

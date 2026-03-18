@@ -1,6 +1,8 @@
 # Hapi Cart Service API
 
-Cart + favorites API built with **Hapi**, **Prisma**, and **PostgreSQL (Neon)**, documented via **hapi-swagger**.
+Cart + favorites API built with **Hapi**, **AWS DynamoDB**, and **TypeScript**, documented via **hapi-swagger**.
+
+> **⚠️ Database Migration Notice**: This project has been migrated from a previous relational database to AWS DynamoDB. See [MIGRATION_SUMMARY.md](MIGRATION_SUMMARY.md) for details.
 
 ---
 
@@ -9,7 +11,7 @@ Cart + favorites API built with **Hapi**, **Prisma**, and **PostgreSQL (Neon)**,
 - Hapi v21 (Node.js HTTP framework)
 - @hapi/jwt for authentication
 - hapi-swagger for API docs
-- Prisma ORM with PostgreSQL (Neon)
+- AWS SDK v3 (DynamoDB)
 - TypeScript
 
 ---
@@ -17,7 +19,8 @@ Cart + favorites API built with **Hapi**, **Prisma**, and **PostgreSQL (Neon)**,
 ## Prerequisites
 
 - Node.js 18+
-- An accessible PostgreSQL database (Neon recommended)
+- AWS Account with DynamoDB access (or DynamoDB Local for development)
+- AWS credentials configured
 
 ---
 
@@ -34,28 +37,35 @@ npm install
 Create a `.env` file in the project root (you can copy from `.env.example`) and set:
 
 ```env
+# AWS Configuration
+AWS_REGION=us-east-1
+AWS_ACCESS_KEY_ID=your_access_key_id
+AWS_SECRET_ACCESS_KEY=your_secret_access_key
+
+# JWT Secret
 JWT_SECRET=changeme
-DATABASE_URL="postgresql://<user>:<password>@<host>/<db>?sslmode=require"
+
+# Server Port
+PORT=4000
 ```
 
-> Note: For Neon, paste the connection string from the Neon dashboard.
+> **For Local Development**: See [DYNAMODB_MIGRATION.md](DYNAMODB_MIGRATION.md) for instructions on using DynamoDB Local.
 
-### 3. Prisma
+### 3. Setup DynamoDB Tables
 
-Generate the Prisma client and run the initial migration:
+Create the required DynamoDB tables:
 
 ```bash
-npx prisma generate
-npx prisma migrate dev --name init_cart_service
+npm run setup:dynamodb
 ```
 
-This creates the following models in your database:
+This creates the following tables:
 
-- `User`
-- `Product`
-- `Cart`
-- `CartItem`
-- `Favorite`
+- `Users` (with EmailIndex GSI)
+- `Products`
+- `Carts` (with UserIdIndex GSI)
+- `CartItems` (with CartIdIndex GSI)
+- `Favorites` (with UserIdIndex GSI)
 
 ---
 
@@ -67,8 +77,8 @@ npm run dev
 
 The API will start at:
 
-- **Base URL**: `http://localhost:4000`
-- **Swagger UI**: `http://localhost:4000/docs`
+- **Base URL**: `http://localhost:3000`
+- **Swagger UI**: `http://localhost:3000/documentation`
 
 ---
 
@@ -99,7 +109,7 @@ The API will start at:
      }
      ```
 3. **Authorize in Swagger**:
-   - Click the **Authorize** (lock) button in `/docs`.
+   - Click the **Authorize** (lock) button in `/documentation`.
    - For `jwt (apiKey)` value, paste:
      ```text
      Bearer <JWT_TOKEN>
@@ -112,7 +122,7 @@ The API will start at:
 
 ### 1. Health & Base
 
-- `GET /` – simple “API is Live !!!” response (no auth).
+- `GET /` – simple "API is Live !!!" response (no auth).
 - `GET /health` – health check with optional `name` query (no auth).
 
 ### 2. Auth
@@ -123,11 +133,11 @@ The API will start at:
   - Body: `{ "email": string, "password": string }`
 - `GET /protected` – sample protected route (requires JWT).
 
-Users are stored in the `User` table with **bcrypt-hashed passwords**. JWT payload includes `userId` and `email`.
+Users are stored in the `Users` DynamoDB table with **bcrypt-hashed passwords**. JWT payload includes `userId` and `email`.
 
 ### 3. Products
 
-All product data is stored in the `Product` table.
+All product data is stored in the `Products` DynamoDB table.
 
 - `GET /products` – list all products (public).
 - `GET /products/{id}` – get a single product by id (public).
@@ -148,9 +158,9 @@ All product data is stored in the `Product` table.
 
 ### 4. Cart
 
-Per-user cart, backed by `Cart` and `CartItem` tables. All routes require JWT.
+Per-user cart, backed by `Carts` and `CartItems` DynamoDB tables. All routes require JWT.
 
-- `GET /cart` – get the current user’s cart (includes items and products).
+- `GET /cart` – get the current user's cart (includes items and products).
 - `POST /cart/items` – add item to cart.
   - Body:
     ```json
@@ -167,9 +177,9 @@ Per-user cart, backed by `Cart` and `CartItem` tables. All routes require JWT.
 
 ### 5. Favorites
 
-Per-user favorites, backed by the `Favorite` table. All routes require JWT.
+Per-user favorites, backed by the `Favorites` DynamoDB table. All routes require JWT.
 
-- `GET /favorites` – list user’s favorite products (includes product data).
+- `GET /favorites` – list user's favorite products (includes product data).
 - `POST /favorites` – add a product to favorites.
   - Body:
     ```json
@@ -183,9 +193,11 @@ Per-user favorites, backed by the `Favorite` table. All routes require JWT.
 
 ## Development Notes
 
-- Prisma client is exposed on `server.app.prisma` via `prismaPlugin` (`src/plugins/prismaPlugin.ts`).
+- DynamoDB DocumentClient is exposed on `server.app.dynamodb` via `dynamoDbPlugin` (`src/plugins/dynamoDbPlugin.ts`).
 - JWT authentication is configured in `src/plugins/jwtPlugin.ts` and set as the default auth strategy.
-- Swagger is configured in `src/plugins/swaggerPlugin.ts` with global JWT security, so once authorized, all protected endpoints in `/docs` send the `Authorization` header automatically.
+- Swagger is configured in `src/plugins/swaggerPlugin.ts` with global JWT security.
+- All IDs are UUIDs generated using the `uuid` package.
+- Related data (e.g., products in cart) is fetched using `BatchGetCommand` for efficiency.
 
 ---
 
@@ -195,18 +207,45 @@ Defined in `package.json`:
 
 - `npm run dev` – start dev server with nodemon + ts-node.
 - `npm run build` – compile TypeScript (`tsc`).
-- `npm start` – run the compiled JS (`node dist/server.ts`).
-- `npm run prisma:migrate` – alias for `prisma migrate dev` (if desired).
-- `npx prisma studio` – open Prisma Studio (run manually) to inspect DB.
+- `npm start` – run the compiled JS.
+- `npm run setup:dynamodb` – create DynamoDB tables.
+- run dynamo locally - java "-Djava.library.path=./DynamoDBLocal_lib" -jar DynamoDBLocal.jar -sharedDb
+
+---
+
+## Documentation
+
+- [DYNAMODB_MIGRATION.md](DYNAMODB_MIGRATION.md) - Complete migration guide and DynamoDB setup
+- [MIGRATION_SUMMARY.md](MIGRATION_SUMMARY.md) - Summary of changes made during migration
+- [.env.example](.env.example) - Example environment configuration
 
 ---
 
 ## Troubleshooting
 
 - **401 Missing authentication**:
-  - Ensure you used `/login` and set `Authorization: Bearer <token>` in Swagger’s Authorize dialog.
+  - Ensure you used `/login` and set `Authorization: Bearer <token>` in Swagger's Authorize dialog.
 - **400 Invalid request payload input**:
   - Check the Swagger schema for the endpoint; Joi validation failed.
-- **Database connection issues**:
-  - Verify `DATABASE_URL` in `.env` and run `npx prisma migrate dev` again if schema changed.
+- **DynamoDB connection issues**:
+  - Verify AWS credentials in `.env`
+  - Check AWS region is correct
+  - Ensure tables exist (`npm run setup:dynamodb`)
+  - For local development, verify DynamoDB Local is running
+- **ResourceNotFoundException**:
+  - Tables may not exist. Run `npm run setup:dynamodb`
+  - Check table names match environment variables
 
+---
+
+## Migration from Previous Database Stack
+
+This project was originally built with a different SQL database and ORM. It has been fully migrated to AWS DynamoDB. Key changes:
+
+- ✅ Replaced Prisma Client with AWS SDK v3
+- ✅ Converted relational schema to DynamoDB tables with GSIs
+- ✅ Updated all service and route handlers
+- ✅ Maintained API compatibility (endpoints unchanged)
+- ✅ Added setup script for table creation
+
+For detailed migration information, see [MIGRATION_SUMMARY.md](MIGRATION_SUMMARY.md).

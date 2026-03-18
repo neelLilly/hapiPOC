@@ -1,21 +1,89 @@
-import type { PrismaClient } from "@prisma/client";
+import type { DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb";
+import { ScanCommand, GetCommand, PutCommand, UpdateCommand, DeleteCommand } from "@aws-sdk/lib-dynamodb";
+import { v4 as uuidv4 } from "uuid";
+import { TableNames } from "../../config/dynamodb.config.ts";
+import type { Product } from "../../types/dynamodb.ts";
 
-export const listProducts = (prisma: PrismaClient) => {
-    return prisma.product.findMany();
+export const listProducts = async (dynamodb: DynamoDBDocumentClient) => {
+    const result = await dynamodb.send(new ScanCommand({
+        TableName: TableNames.PRODUCTS
+    }));
+    return result.Items || [];
 };
 
-export const getProduct = (prisma: PrismaClient, id: string) => {
-    return prisma.product.findUnique({ where: { id } });
+export const getProduct = async (dynamodb: DynamoDBDocumentClient, id: string) => {
+    const result = await dynamodb.send(new GetCommand({
+        TableName: TableNames.PRODUCTS,
+        Key: { id }
+    }));
+    return result.Item;
 };
 
-export const createProduct = (prisma: PrismaClient, data: { name: string; description?: string; price: number; stock?: number }) => {
-    return prisma.product.create({ data });
+export const createProduct = async (dynamodb: DynamoDBDocumentClient, data: { name: string; description?: string; price: number; stock?: number }) => {
+    const product: Product = {
+        id: uuidv4(),
+        name: data.name,
+        description: data.description,
+        price: data.price,
+        stock: data.stock ?? 0,
+        createdAt: new Date().toISOString()
+    };
+
+    await dynamodb.send(new PutCommand({
+        TableName: TableNames.PRODUCTS,
+        Item: product
+    }));
+
+    return product;
 };
 
-export const updateProduct = (prisma: PrismaClient, id: string, data: { name?: string; description?: string; price?: number; stock?: number }) => {
-    return prisma.product.update({ where: { id }, data });
+export const updateProduct = async (dynamodb: DynamoDBDocumentClient, id: string, data: { name?: string; description?: string; price?: number; stock?: number }) => {
+    const updateExpressions: string[] = [];
+    const expressionAttributeNames: Record<string, string> = {};
+    const expressionAttributeValues: Record<string, any> = {};
+
+    if (data.name !== undefined) {
+        updateExpressions.push("#name = :name");
+        expressionAttributeNames["#name"] = "name";
+        expressionAttributeValues[":name"] = data.name;
+    }
+    if (data.description !== undefined) {
+        updateExpressions.push("#description = :description");
+        expressionAttributeNames["#description"] = "description";
+        expressionAttributeValues[":description"] = data.description;
+    }
+    if (data.price !== undefined) {
+        updateExpressions.push("#price = :price");
+        expressionAttributeNames["#price"] = "price";
+        expressionAttributeValues[":price"] = data.price;
+    }
+    if (data.stock !== undefined) {
+        updateExpressions.push("#stock = :stock");
+        expressionAttributeNames["#stock"] = "stock";
+        expressionAttributeValues[":stock"] = data.stock;
+    }
+
+    if (updateExpressions.length === 0) {
+        throw new Error("No fields to update");
+    }
+
+    const result = await dynamodb.send(new UpdateCommand({
+        TableName: TableNames.PRODUCTS,
+        Key: { id },
+        UpdateExpression: `SET ${updateExpressions.join(", ")}`,
+        ExpressionAttributeNames: expressionAttributeNames,
+        ExpressionAttributeValues: expressionAttributeValues,
+        ReturnValues: "ALL_NEW"
+    }));
+
+    return result.Attributes;
 };
 
-export const deleteProduct = (prisma: PrismaClient, id: string) => {
-    return prisma.product.delete({ where: { id } });
+export const deleteProduct = async (dynamodb: DynamoDBDocumentClient, id: string) => {
+    await dynamodb.send(new DeleteCommand({
+        TableName: TableNames.PRODUCTS,
+        Key: { id }
+    }));
+    return { id };
 };
+

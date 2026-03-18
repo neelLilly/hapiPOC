@@ -7,8 +7,8 @@
     "dev": "nodemon",
     "build": "tsc",
     "start": "ts-node src/server.ts",
-    "prisma:migrate": "prisma migrate dev",
-    "prisma:generate": "prisma generate",
+    "db": "npm run setup:dynamodb",
+    "setup:dynamodb": "ts-node src/scripts/setup-dynamodb.ts",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
@@ -16,21 +16,24 @@
   "license": "ISC",
   "type": "module",
   "dependencies": {
+    "@aws-sdk/client-dynamodb": "^3.709.0",
+    "@aws-sdk/lib-dynamodb": "^3.709.0",
     "@hapi/hapi": "^21.4.7",
     "@hapi/inert": "^7.1.0",
     "@hapi/jwt": "^3.2.3",
     "@hapi/vision": "^7.0.3",
-    "@prisma/client": "^6.0.0",
     "bcrypt": "^5.1.1",
+    "dotenv": "^17.3.1",
     "hapi-swagger": "^17.3.2",
-    "joi": "^17.13.3"
+    "joi": "^17.13.3",
+    "uuid": "^11.0.3"
   },
   "devDependencies": {
     "@types/bcrypt": "^5.0.2",
     "@types/node": "^25.5.0",
+    "@types/uuid": "^10.0.0",
     "esbuild": "^0.27.4",
     "nodemon": "^3.1.14",
-    "prisma": "^6.0.0",
     "ts-node": "^10.9.2",
     "typescript": "^5.9.3"
   }

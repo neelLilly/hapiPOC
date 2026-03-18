@@ -1,6 +1,10 @@
 import type { ServerRoute } from "@hapi/hapi";
-import type { PrismaClient } from "@prisma/client";
+import type { DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb";
 import { createProductSchema, updateProductSchema, bulkCreateProductsSchema } from "./product.schema.ts";
+import * as productService from "./product.service.ts";
+import { v4 as uuidv4 } from "uuid";
+import { BatchWriteCommand } from "@aws-sdk/lib-dynamodb";
+import { TableNames } from "../../config/dynamodb.config.ts";
 
 const productRoutes: ServerRoute[] = [
     {
@@ -12,8 +16,8 @@ const productRoutes: ServerRoute[] = [
             description: "List all products",
         },
         handler: async (request, h) => {
-            const prisma = request.server.app.prisma as PrismaClient;
-            const products = await prisma.product.findMany();
+            const dynamodb = request.server.app.dynamodb as DynamoDBDocumentClient;
+            const products = await productService.listProducts(dynamodb);
             return h.response(products).code(200);
         }
     },
@@ -26,9 +30,9 @@ const productRoutes: ServerRoute[] = [
             description: "Get a single product",
         },
         handler: async (request, h) => {
-            const prisma = request.server.app.prisma as PrismaClient;
+            const dynamodb = request.server.app.dynamodb as DynamoDBDocumentClient;
             const { id } = request.params as { id: string };
-            const product = await prisma.product.findUnique({ where: { id } });
+            const product = await productService.getProduct(dynamodb, id);
             if (!product) {
                 return h.response({ message: "Product not found" }).code(404);
             }
@@ -52,9 +56,9 @@ const productRoutes: ServerRoute[] = [
             }
         },
         handler: async (request, h) => {
-            const prisma = request.server.app.prisma as PrismaClient;
+            const dynamodb = request.server.app.dynamodb as DynamoDBDocumentClient;
             const payload = request.payload as any;
-            const product = await prisma.product.create({ data: payload });
+            const product = await productService.createProduct(dynamodb, payload);
             return h.response(product).code(201);
         }
     },
@@ -75,15 +79,27 @@ const productRoutes: ServerRoute[] = [
             }
         },
         handler: async (request, h) => {
-            const prisma = request.server.app.prisma as PrismaClient;
-            const payload = request.payload as any[]; // array of products
+            const dynamodb = request.server.app.dynamodb as DynamoDBDocumentClient;
+            const payload = request.payload as any[];
 
-            const created = await prisma.product.createMany({
-                data: payload,
-                skipDuplicates: true
-            });
+            const putRequests = payload.map(item => ({
+                PutRequest: {
+                    Item: {
+                        id: uuidv4(),
+                        ...item,
+                        stock: item.stock ?? 0,
+                        createdAt: new Date().toISOString()
+                    }
+                }
+            }));
 
-            return h.response(created).code(201);
+            await dynamodb.send(new BatchWriteCommand({
+                RequestItems: {
+                    [TableNames.PRODUCTS]: putRequests
+                }
+            }));
+
+            return h.response({ count: payload.length }).code(201);
         }
     },
     {
@@ -103,11 +119,11 @@ const productRoutes: ServerRoute[] = [
             }
         },
         handler: async (request, h) => {
-            const prisma = request.server.app.prisma as PrismaClient;
+            const dynamodb = request.server.app.dynamodb as DynamoDBDocumentClient;
             const { id } = request.params as { id: string };
             const payload = request.payload as any;
             try {
-                const product = await prisma.product.update({ where: { id }, data: payload });
+                const product = await productService.updateProduct(dynamodb, id, payload);
                 return h.response(product).code(200);
             } catch (err: any) {
                 return h.response({ message: "Product not found" }).code(404);
@@ -128,10 +144,10 @@ const productRoutes: ServerRoute[] = [
             },
         },
         handler: async (request, h) => {
-            const prisma = request.server.app.prisma as PrismaClient;
+            const dynamodb = request.server.app.dynamodb as DynamoDBDocumentClient;
             const { id } = request.params as { id: string };
             try {
-                await prisma.product.delete({ where: { id } });
+                await productService.deleteProduct(dynamodb, id);
                 return h.response().code(204);
             } catch (err: any) {
                 return h.response({ message: "Product not found" }).code(404);

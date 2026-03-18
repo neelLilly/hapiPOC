@@ -9,6 +9,8 @@ import authRoutes from './modules/auth/auth.routes.ts'
 import productRoutes from './modules/products/product.routes.ts'
 import cartRoutes from './modules/cart/cart.routes.ts'
 import favoritesRoutes from './modules/favorites/favorites.routes.ts'
+import { initializeTemporalClient } from './temporal/client.ts'
+import { createProductWorker } from './temporal/workers/productWorker.ts'
 
 async function start() {
     const server = Hapi.server({
@@ -21,6 +23,22 @@ async function start() {
         swaggerPlugin,
         jwtPlugin,
     ])
+
+    // Initialize Temporal workflow support
+    try {
+        await initializeTemporalClient();
+        console.log('Temporal Client initialized');
+        
+        // Start Temporal worker in background
+        const dynamodb = server.app.dynamodb;
+        const worker = await createProductWorker(dynamodb);
+        worker.run().catch((error) => {
+            console.error('Worker failed:', error);
+        });
+        console.log('Temporal Worker started for product-tasks queue');
+    } catch (error) {
+        console.warn('Temporal not available, running without workflows:', error);
+    }
 
     server.route(authRoutes as ServerRoute[]);
     server.route(routes as ServerRoute[]);

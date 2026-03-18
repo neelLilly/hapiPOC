@@ -9,6 +9,7 @@
     "start": "ts-node src/server.ts",
     "db": "npm run setup:dynamodb",
     "setup:dynamodb": "ts-node src/scripts/setup-dynamodb.ts",
+    "temporal": "temporal server start-dev",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
@@ -22,6 +23,9 @@
     "@hapi/inert": "^7.1.0",
     "@hapi/jwt": "^3.2.3",
     "@hapi/vision": "^7.0.3",
+    "@temporalio/client": "^1.15.0",
+    "@temporalio/worker": "^1.15.0",
+    "@temporalio/workflow": "^1.15.0",
     "bcrypt": "^5.1.1",
     "dotenv": "^17.3.1",
     "hapi-swagger": "^17.3.2",

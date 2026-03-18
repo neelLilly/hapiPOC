@@ -5,6 +5,8 @@ import * as productService from "./product.service.ts";
 import { v4 as uuidv4 } from "uuid";
 import { BatchWriteCommand } from "@aws-sdk/lib-dynamodb";
 import { TableNames } from "../../config/dynamodb.config.ts";
+import { getTemporalClient } from "../../temporal/client.ts";
+import { createProductWorkflow } from "../../temporal/workflows/productWorkflows.ts";
 
 const productRoutes: ServerRoute[] = [
     {
@@ -34,8 +36,8 @@ const productRoutes: ServerRoute[] = [
             }
 
             const result = await productService.listProducts(dynamodb, {
-                limit: parsedLimit,
-                cursor: parsedCursor
+                ...(parsedLimit !== undefined && { limit: parsedLimit }),
+                ...(parsedCursor !== undefined && { cursor: parsedCursor })
             });
 
             return h.response(result).code(200);
@@ -68,7 +70,7 @@ const productRoutes: ServerRoute[] = [
         options: {
             auth: "jwt",
             tags: ["api", "products"],
-            description: "Create a product",
+            description: "Create a product (direct service call)",
             plugins: {
                 "hapi-swagger": {
                     security: [{ jwt: [] }]
@@ -83,6 +85,40 @@ const productRoutes: ServerRoute[] = [
             const payload = request.payload as any;
             const product = await productService.createProduct(dynamodb, payload);
             return h.response(product).code(201);
+        }
+    },
+    {
+        method: "POST",
+        path: "/products/temporal",
+        options: {
+            auth: "jwt",
+            tags: ["api", "products"],
+            description: "Create a product (using Temporal workflow)",
+            plugins: {
+                "hapi-swagger": {
+                    security: [{ jwt: [] }]
+                }
+            },
+            validate: {
+                payload: createProductSchema
+            }
+        },
+        handler: async (request, h) => {
+            try {
+                const client = await getTemporalClient();
+                const payload = request.payload as any;
+                
+                const product = await client.workflow.execute(createProductWorkflow, {
+                    args: [payload],
+                    taskQueue: "product-tasks",
+                    workflowId: `create-product-${uuidv4()}`
+                });
+                
+                return h.response(product).code(201);
+            } catch (error: any) {
+                console.error("Workflow execution failed:", error);
+                return h.response({ message: "Temporal workflow failed", error: error.message }).code(500);
+            }
         }
     },
     {

@@ -1,5 +1,9 @@
 import Joi from "joi";
 
+export const productIdParamSchema = Joi.object({
+    id: Joi.string().required()
+});
+
 export const createProductSchema = Joi.object({
     name: Joi.string().required(),
     description: Joi.string().optional(),

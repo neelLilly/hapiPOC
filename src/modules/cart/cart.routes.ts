@@ -1,6 +1,6 @@
 import type { ServerRoute } from "@hapi/hapi";
 import type { DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb";
-import { addCartItemSchema, updateCartItemSchema } from "./cart.schema.ts";
+import { addCartItemSchema, updateCartItemSchema, cartItemProductIdParamSchema } from "./cart.schema.ts";
 import { getOrCreateCart, addItemToCart, updateCartItemQuantity, removeCartItem, clearCart } from "./cart.service.ts";
 
 const cartRoutes: ServerRoute[] = [
@@ -51,7 +51,7 @@ const cartRoutes: ServerRoute[] = [
     },
     {
         method: "PUT",
-        path: "/cart/items/{itemId}",
+        path: "/cart/items/{productId}",
         options: {
             auth: "jwt",
             tags: ["api", "cart"],
@@ -62,21 +62,23 @@ const cartRoutes: ServerRoute[] = [
                 }
             },
             validate: {
+                params: cartItemProductIdParamSchema,
                 payload: updateCartItemSchema
             }
         },
         handler: async (request, h) => {
             const dynamodb = request.server.app.dynamodb as DynamoDBDocumentClient;
-            const { itemId } = request.params as { itemId: string };
+            const { userId } = request.auth.credentials as { userId: string };
+            const { productId } = request.params as { productId: string };
             const { quantity } = request.payload as { quantity: number };
 
-            const item = await updateCartItemQuantity(dynamodb, itemId, quantity);
+            const item = await updateCartItemQuantity(dynamodb, userId, productId, quantity);
             return h.response(item).code(200);
         }
     },
     {
         method: "DELETE",
-        path: "/cart/items/{itemId}",
+        path: "/cart/items/{productId}",
         options: {
             auth: "jwt",
             tags: ["api", "cart"],
@@ -85,13 +87,17 @@ const cartRoutes: ServerRoute[] = [
                 "hapi-swagger": {
                     security: [{ jwt: [] }]
                 }
+            },
+            validate: {
+                params: cartItemProductIdParamSchema
             }
         },
         handler: async (request, h) => {
             const dynamodb = request.server.app.dynamodb as DynamoDBDocumentClient;
-            const { itemId } = request.params as { itemId: string };
+            const { userId } = request.auth.credentials as { userId: string };
+            const { productId } = request.params as { productId: string };
 
-            await removeCartItem(dynamodb, itemId);
+            await removeCartItem(dynamodb, userId, productId);
             return h.response().code(204);
         }
     },

@@ -1,6 +1,6 @@
 import type { ServerRoute } from "@hapi/hapi";
 import type { DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb";
-import { addFavoriteSchema } from "./favorites.schema.ts";
+import { addFavoriteSchema, favoriteProductIdParamSchema } from "./favorites.schema.ts";
 import { listFavorites, addFavorite, removeFavorite } from "./favorites.service.ts";
 
 const favoritesRoutes: ServerRoute[] = [
@@ -50,7 +50,10 @@ const favoritesRoutes: ServerRoute[] = [
                 const favorite = await addFavorite(dynamodb, userId, productId);
                 return h.response(favorite).code(201);
             } catch (err: any) {
-                return h.response({ message: err.message }).code(400);
+                if (err?.name === "ConditionalCheckFailedException") {
+                    return h.response({ message: "Favorite already exists" }).code(400);
+                }
+                return h.response({ message: err?.message ?? "Failed to add favorite" }).code(400);
             }
         }
     },
@@ -65,6 +68,9 @@ const favoritesRoutes: ServerRoute[] = [
                 "hapi-swagger": {
                     security: [{ jwt: [] }]
                 }
+            },
+            validate: {
+                params: favoriteProductIdParamSchema
             }
         },
         handler: async (request, h) => {
@@ -76,7 +82,10 @@ const favoritesRoutes: ServerRoute[] = [
                 await removeFavorite(dynamodb, userId, productId);
                 return h.response().code(204);
             } catch (err: any) {
-                return h.response({ message: err.message }).code(404);
+                if (err?.name === "ConditionalCheckFailedException") {
+                    return h.response({ message: "Favorite not found" }).code(404);
+                }
+                return h.response({ message: err?.message ?? "Failed to remove favorite" }).code(404);
             }
         }
     }

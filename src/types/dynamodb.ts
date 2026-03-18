@@ -7,6 +7,7 @@ export interface User {
 
 export interface Product {
     id: string;
+    entityType: "PRODUCT";
     name: string;
     description?: string;
     price: number;
@@ -15,20 +16,17 @@ export interface Product {
 }
 
 export interface Cart {
-    id: string;
     userId: string;
     updatedAt: string;
 }
 
 export interface CartItem {
-    id: string;
     cartId: string;
     productId: string;
     quantity: number;
 }
 
 export interface Favorite {
-    id: string;
     userId: string;
     productId: string;
 }

@@ -1,24 +1,17 @@
 import type { DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb";
 import { QueryCommand, GetCommand, PutCommand, UpdateCommand, DeleteCommand, BatchGetCommand } from "@aws-sdk/lib-dynamodb";
-import { v4 as uuidv4 } from "uuid";
 import { TableNames } from "../../config/dynamodb.config.ts";
 import type { Cart, CartItem, Product } from "../../types/dynamodb.ts";
 
 export const getOrCreateCart = async (dynamodb: DynamoDBDocumentClient, userId: string) => {
-    const result = await dynamodb.send(new QueryCommand({
+    const cartResult = await dynamodb.send(new GetCommand({
         TableName: TableNames.CARTS,
-        IndexName: "UserIdIndex",
-        KeyConditionExpression: "userId = :userId",
-        ExpressionAttributeValues: {
-            ":userId": userId
-        }
+        Key: { userId }
     }));
 
     let cart: Cart;
-
-    if (!result.Items || result.Items.length === 0) {
+    if (!cartResult.Item) {
         cart = {
-            id: uuidv4(),
             userId,
             updatedAt: new Date().toISOString()
         };
@@ -28,15 +21,14 @@ export const getOrCreateCart = async (dynamodb: DynamoDBDocumentClient, userId: 
             Item: cart
         }));
     } else {
-        cart = result.Items[0] as Cart;
+        cart = cartResult.Item as Cart;
     }
 
     const itemsResult = await dynamodb.send(new QueryCommand({
         TableName: TableNames.CART_ITEMS,
-        IndexName: "CartIdIndex",
         KeyConditionExpression: "cartId = :cartId",
         ExpressionAttributeValues: {
-            ":cartId": cart.id
+            ":cartId": userId
         }
     }));
 
@@ -73,70 +65,35 @@ export const getOrCreateCart = async (dynamodb: DynamoDBDocumentClient, userId: 
 };
 
 export const addItemToCart = async (dynamodb: DynamoDBDocumentClient, userId: string, productId: string, quantity: number) => {
-    console.log('--------------->TRYING TO ADD ITEM TO CART');
     const cart = await getOrCreateCart(dynamodb, userId);
 
-    const existingItemsResult = await dynamodb.send(new QueryCommand({
+    const updatedItem = await dynamodb.send(new UpdateCommand({
         TableName: TableNames.CART_ITEMS,
-        IndexName: "CartIdIndex",
-        KeyConditionExpression: "cartId = :cartId",
+        Key: { cartId: userId, productId },
+        UpdateExpression: "SET quantity = if_not_exists(quantity, :zero) + :inc",
         ExpressionAttributeValues: {
-            ":cartId": cart.id
-        }
-    }));
-
-    const existingItem = (existingItemsResult.Items as CartItem[] || []).find(
-        item => item.productId === productId
-    );
-
-    if (existingItem) {
-        console.log('--------------->',existingItem);
-        const updatedItem = await dynamodb.send(new UpdateCommand({
-            TableName: TableNames.CART_ITEMS,
-            Key: { id: existingItem.id },
-            UpdateExpression: "SET quantity = :quantity",
-            ExpressionAttributeValues: {
-                ":quantity": existingItem.quantity + quantity
-            },
-            ReturnValues: "ALL_NEW"
-        }));
-        return updatedItem.Attributes;
-    }
-
-    console.log('--------------->CREATING NEW ITEM',
-        cart.id,
-        productId,
-        quantity
-    );
-
-    const newItem: CartItem = {
-        id: uuidv4(),
-        cartId: cart.id,
-        productId,
-        quantity
-    };
-
-    await dynamodb.send(new PutCommand({
-        TableName: TableNames.CART_ITEMS,
-        Item: newItem
+            ":zero": 0,
+            ":inc": quantity
+        },
+        ReturnValues: "ALL_NEW"
     }));
 
     await dynamodb.send(new UpdateCommand({
         TableName: TableNames.CARTS,
-        Key: { id: cart.id },
+        Key: { userId: cart.userId },
         UpdateExpression: "SET updatedAt = :updatedAt",
         ExpressionAttributeValues: {
             ":updatedAt": new Date().toISOString()
         }
     }));
 
-    return newItem;
+    return updatedItem.Attributes;
 };
 
-export const updateCartItemQuantity = async (dynamodb: DynamoDBDocumentClient, itemId: string, quantity: number) => {
+export const updateCartItemQuantity = async (dynamodb: DynamoDBDocumentClient, userId: string, productId: string, quantity: number) => {
     const result = await dynamodb.send(new UpdateCommand({
         TableName: TableNames.CART_ITEMS,
-        Key: { id: itemId },
+        Key: { cartId: userId, productId },
         UpdateExpression: "SET quantity = :quantity",
         ExpressionAttributeValues: {
             ":quantity": quantity
@@ -146,36 +103,29 @@ export const updateCartItemQuantity = async (dynamodb: DynamoDBDocumentClient, i
     return result.Attributes;
 };
 
-export const removeCartItem = async (dynamodb: DynamoDBDocumentClient, itemId: string) => {
+export const removeCartItem = async (dynamodb: DynamoDBDocumentClient, userId: string, productId: string) => {
     await dynamodb.send(new DeleteCommand({
         TableName: TableNames.CART_ITEMS,
-        Key: { id: itemId }
+        Key: { cartId: userId, productId }
     }));
-    return { id: itemId };
+    return { productId };
 };
 
 export const clearCart = async (dynamodb: DynamoDBDocumentClient, userId: string) => {
-    const result = await dynamodb.send(new QueryCommand({
+    const cartResult = await dynamodb.send(new GetCommand({
         TableName: TableNames.CARTS,
-        IndexName: "UserIdIndex",
-        KeyConditionExpression: "userId = :userId",
-        ExpressionAttributeValues: {
-            ":userId": userId
-        }
+        Key: { userId }
     }));
 
-    if (!result.Items || result.Items.length === 0) {
+    if (!cartResult.Item) {
         return;
     }
 
-    const cart = result.Items[0] as Cart;
-
     const itemsResult = await dynamodb.send(new QueryCommand({
         TableName: TableNames.CART_ITEMS,
-        IndexName: "CartIdIndex",
         KeyConditionExpression: "cartId = :cartId",
         ExpressionAttributeValues: {
-            ":cartId": cart.id
+            ":cartId": userId
         }
     }));
 
@@ -184,7 +134,7 @@ export const clearCart = async (dynamodb: DynamoDBDocumentClient, userId: string
     for (const item of items) {
         await dynamodb.send(new DeleteCommand({
             TableName: TableNames.CART_ITEMS,
-            Key: { id: item.id }
+            Key: { cartId: userId, productId: item.productId }
         }));
     }
 };

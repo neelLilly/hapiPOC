@@ -1,14 +1,31 @@
 import type { DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb";
-import { ScanCommand, GetCommand, PutCommand, UpdateCommand, DeleteCommand } from "@aws-sdk/lib-dynamodb";
+import { QueryCommand, GetCommand, PutCommand, UpdateCommand, DeleteCommand } from "@aws-sdk/lib-dynamodb";
 import { v4 as uuidv4 } from "uuid";
 import { TableNames } from "../../config/dynamodb.config.ts";
 import type { Product } from "../../types/dynamodb.ts";
 
-export const listProducts = async (dynamodb: DynamoDBDocumentClient) => {
-    const result = await dynamodb.send(new ScanCommand({
-        TableName: TableNames.PRODUCTS
+export const listProducts = async (
+    dynamodb: DynamoDBDocumentClient,
+    opts?: { limit?: number; cursor?: Record<string, any> }
+) => {
+    const limit = Math.min(Math.max(opts?.limit ?? 50, 1), 200);
+
+    const result = await dynamodb.send(new QueryCommand({
+        TableName: TableNames.PRODUCTS,
+        IndexName: "ProductsByCreatedAt",
+        KeyConditionExpression: "entityType = :entityType",
+        ExpressionAttributeValues: {
+            ":entityType": "PRODUCT"
+        },
+        ScanIndexForward: false,
+        Limit: limit,
+        ...(opts?.cursor ? { ExclusiveStartKey: opts.cursor } : {})
     }));
-    return result.Items || [];
+
+    return {
+        items: (result.Items || []) as Product[],
+        cursor: result.LastEvaluatedKey ?? null
+    };
 };
 
 export const getProduct = async (dynamodb: DynamoDBDocumentClient, id: string) => {
@@ -22,6 +39,7 @@ export const getProduct = async (dynamodb: DynamoDBDocumentClient, id: string) =
 export const createProduct = async (dynamodb: DynamoDBDocumentClient, data: { name: string; description?: string; price: number; stock?: number }) => {
     const product: Product = {
         id: uuidv4(),
+        entityType: "PRODUCT",
         name: data.name,
         description: data.description,
         price: data.price,

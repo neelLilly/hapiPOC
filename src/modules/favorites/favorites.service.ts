@@ -1,13 +1,11 @@
 import type { DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb";
 import { QueryCommand, PutCommand, DeleteCommand, BatchGetCommand } from "@aws-sdk/lib-dynamodb";
-import { v4 as uuidv4 } from "uuid";
 import { TableNames } from "../../config/dynamodb.config.ts";
 import type { Favorite, Product } from "../../types/dynamodb.ts";
 
 export const listFavorites = async (dynamodb: DynamoDBDocumentClient, userId: string) => {
     const result = await dynamodb.send(new QueryCommand({
         TableName: TableNames.FAVORITES,
-        IndexName: "UserIdIndex",
         KeyConditionExpression: "userId = :userId",
         ExpressionAttributeValues: {
             ":userId": userId
@@ -42,59 +40,26 @@ export const listFavorites = async (dynamodb: DynamoDBDocumentClient, userId: st
 };
 
 export const addFavorite = async (dynamodb: DynamoDBDocumentClient, userId: string, productId: string) => {
-    const existingResult = await dynamodb.send(new QueryCommand({
-        TableName: TableNames.FAVORITES,
-        IndexName: "UserIdIndex",
-        KeyConditionExpression: "userId = :userId",
-        ExpressionAttributeValues: {
-            ":userId": userId
-        }
-    }));
-
-    const existing = (existingResult.Items as Favorite[] || []).find(
-        fav => fav.productId === productId
-    );
-
-    if (existing) {
-        throw new Error("Favorite already exists");
-    }
-
     const favorite: Favorite = {
-        id: uuidv4(),
         userId,
         productId
     };
 
     await dynamodb.send(new PutCommand({
         TableName: TableNames.FAVORITES,
-        Item: favorite
+        Item: favorite,
+        ConditionExpression: "attribute_not_exists(userId) AND attribute_not_exists(productId)"
     }));
 
     return favorite;
 };
 
 export const removeFavorite = async (dynamodb: DynamoDBDocumentClient, userId: string, productId: string) => {
-    const result = await dynamodb.send(new QueryCommand({
-        TableName: TableNames.FAVORITES,
-        IndexName: "UserIdIndex",
-        KeyConditionExpression: "userId = :userId",
-        ExpressionAttributeValues: {
-            ":userId": userId
-        }
-    }));
-
-    const favorite = (result.Items as Favorite[] || []).find(
-        fav => fav.productId === productId
-    );
-
-    if (!favorite) {
-        throw new Error("Favorite not found");
-    }
-
     await dynamodb.send(new DeleteCommand({
         TableName: TableNames.FAVORITES,
-        Key: { id: favorite.id }
+        Key: { userId, productId },
+        ConditionExpression: "attribute_exists(userId) AND attribute_exists(productId)"
     }));
 
-    return { id: favorite.id };
+    return { productId };
 };

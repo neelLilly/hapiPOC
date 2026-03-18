@@ -62,10 +62,10 @@ npm run setup:dynamodb
 This creates the following tables:
 
 - `Users` (with EmailIndex GSI)
-- `Products`
-- `Carts` (with UserIdIndex GSI)
-- `CartItems` (with CartIdIndex GSI)
-- `Favorites` (with UserIdIndex GSI)
+- `Products` (with ProductsByCreatedAt GSI)
+- `Carts`
+- `CartItems`
+- `Favorites`
 
 ---
 

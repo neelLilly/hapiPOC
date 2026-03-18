@@ -1,6 +1,6 @@
 import type { ServerRoute } from "@hapi/hapi";
 import type { DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb";
-import { createProductSchema, updateProductSchema, bulkCreateProductsSchema } from "./product.schema.ts";
+import { createProductSchema, updateProductSchema, bulkCreateProductsSchema, productIdParamSchema } from "./product.schema.ts";
 import * as productService from "./product.service.ts";
 import { v4 as uuidv4 } from "uuid";
 import { BatchWriteCommand } from "@aws-sdk/lib-dynamodb";
@@ -13,12 +13,32 @@ const productRoutes: ServerRoute[] = [
         options: {
             auth: false,
             tags: ["api", "products"],
-            description: "List all products",
+            description: "List products (paginated)",
         },
         handler: async (request, h) => {
             const dynamodb = request.server.app.dynamodb as DynamoDBDocumentClient;
-            const products = await productService.listProducts(dynamodb);
-            return h.response(products).code(200);
+            const { limit, cursor } = request.query as { limit?: string; cursor?: string };
+
+            const parsedLimit = limit ? Number(limit) : undefined;
+            if (parsedLimit !== undefined && (!Number.isFinite(parsedLimit) || parsedLimit <= 0)) {
+                return h.response({ message: "limit must be a positive number" }).code(400);
+            }
+
+            let parsedCursor: Record<string, any> | undefined;
+            if (cursor) {
+                try {
+                    parsedCursor = JSON.parse(decodeURIComponent(cursor)) as Record<string, any>;
+                } catch {
+                    return h.response({ message: "cursor must be a valid encoded JSON string" }).code(400);
+                }
+            }
+
+            const result = await productService.listProducts(dynamodb, {
+                limit: parsedLimit,
+                cursor: parsedCursor
+            });
+
+            return h.response(result).code(200);
         }
     },
     {
@@ -28,6 +48,9 @@ const productRoutes: ServerRoute[] = [
             auth: false,
             tags: ["api", "products"],
             description: "Get a single product",
+            validate: {
+                params: productIdParamSchema
+            }
         },
         handler: async (request, h) => {
             const dynamodb = request.server.app.dynamodb as DynamoDBDocumentClient;
@@ -86,6 +109,7 @@ const productRoutes: ServerRoute[] = [
                 PutRequest: {
                     Item: {
                         id: uuidv4(),
+                        entityType: "PRODUCT",
                         ...item,
                         stock: item.stock ?? 0,
                         createdAt: new Date().toISOString()
@@ -115,6 +139,7 @@ const productRoutes: ServerRoute[] = [
                 }
             },
             validate: {
+                params: productIdParamSchema,
                 payload: updateProductSchema
             }
         },
@@ -142,6 +167,9 @@ const productRoutes: ServerRoute[] = [
                     security: [{ jwt: [] }]
                 }
             },
+            validate: {
+                params: productIdParamSchema
+            }
         },
         handler: async (request, h) => {
             const dynamodb = request.server.app.dynamodb as DynamoDBDocumentClient;

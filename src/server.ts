@@ -13,7 +13,7 @@ import favoritesRoutes from './modules/favorites/favorites.routes.ts'
 async function start() {
     const server = Hapi.server({
         port: config.port,
-        host: 'localhost',
+        host: config.host,
     })
 
     await server.register([
